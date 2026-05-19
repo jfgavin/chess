@@ -1,7 +1,6 @@
 import pygame
 
 from enum import Enum
-from dataclasses import dataclass
 from pathlib import Path
 
 SCREEN_SIZE = 800
@@ -21,34 +20,33 @@ class PieceType(Enum):
     QUEEN = "queen"
     KING = "king"
 
-@dataclass
-class Piece:
-    def __init__(self, pieceColor: PieceColor, pieceType: PieceType, pos: (int, int)):
+class Piece(pygame.sprite.Sprite):
+    def __init__(self, pieceColor: PieceColor, pieceType: PieceType, pos: (int, int), callback):
+        super().__init__()
         self.color = pieceColor
         self.type = pieceType
         self.position = pos
         img = pygame.image.load(IMAGE_PATH / Path(pieceColor.value + "-" + pieceType.value + ".png")).convert_alpha()
         self.image = pygame.transform.smoothscale(img, (CELL_SIZE, CELL_SIZE))
+        self.rect = self.image.get_rect(topleft=(pos[0] * CELL_SIZE, pos[1] * CELL_SIZE))
+        self.callback = callback
 
-    def draw(self, surface: pygame.Surface):
-        x, y = self.position
-        surface.blit(self.image, (x*CELL_SIZE, y*CELL_SIZE))
+    def getPosition(self) -> (int, int):
+        return self.position
+
+    def update(self, events):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.rect.collidepoint(event.pos):
+                    self.callback(self)
 
 class Board:
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_SIZE, SCREEN_SIZE))
-        self.clock = pygame.time.Clock()
-        self.pieces = []
         pygame.display.set_caption("Chess")
-
-    def drawGrid(self):
-        self.screen.fill((0,0,0))
-        for i, x in enumerate(range(0, SCREEN_SIZE, CELL_SIZE)):
-            for j, y in enumerate(range(0, SCREEN_SIZE, CELL_SIZE)):
-                rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
-                if (i + j) % 2 == 0:
-                    pygame.draw.rect(surface=self.screen, color=(210,210,210), rect=rect)
-                
+        self.screen = pygame.display.set_mode((SCREEN_SIZE, SCREEN_SIZE))
+        self.selectedPiece = None
+        self.pieces = self.placePieces()
+        
     def placePieces(self):
         def getQuad(coord):
             x, y = coord
@@ -69,35 +67,56 @@ class Board:
             PieceType.KING: [(3,0),(4,7)],
         }
 
+        pieces = pygame.sprite.Group()
         for pieceType, positions in startingPositions.items():
             for pos in positions:
                 _, y = pos
                 color = PieceColor.WHITE if y > 3 else PieceColor.BLACK
-                self.pieces.append(Piece(color, pieceType, pos))
+                pieces.add(Piece(color, pieceType, pos, self.selectPiece))
+        return pieces
 
-    def drawPieces(self):
-        for piece in self.pieces:
-            piece.draw(surface=self.screen)
+    def drawGrid(self):
+        self.screen.fill((0,0,0))
+        if self.selectedPiece is not None:
+            selectedPos = self.selectedPiece.getPosition()
+        else:
+            selectedPos = (-1, -1)
+        p, q = selectedPos
+        for i, x in enumerate(range(0, SCREEN_SIZE, CELL_SIZE)):
+            for j, y in enumerate(range(0, SCREEN_SIZE, CELL_SIZE)):
+                rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+                if i == p and j == q:
+                    pygame.draw.rect(surface=self.screen, color=(255,0,0), rect=rect)
+                elif (i + j) % 2 == 0:
+                    pygame.draw.rect(surface=self.screen, color=(210,210,210), rect=rect)
+                  
+    def draw(self):
+        self.drawGrid()
+        self.pieces.draw(surface=self.screen)
 
+    def update(self, events: pygame.event):
+        self.pieces.update(events)
+
+    def selectPiece(self, piece: Piece):
+        self.selectedPiece = piece
 
 def main() -> None:
+    pygame.init()
+    clock = pygame.time.Clock()
     board = Board()
-    board.drawGrid()
-    board.placePieces()
-    board.drawPieces()
 
     # Game Loop
     running = True
     while running:
-        mouse = pygame.mouse.get_pos()
-        click = False
-        for event in pygame.event.get():
+        events = pygame.event.get()
+        for event in events:
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                click = True
-
-        pygame.display.update()        
+        board.update(events)
+        
+        board.draw()
+        pygame.display.update()
+        clock.tick(60)      
 
 if __name__ == "__main__":
     main()
