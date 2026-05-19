@@ -34,6 +34,18 @@ class Piece(pygame.sprite.Sprite):
     def getPosition(self) -> (int, int):
         return self.position
 
+    def setPosition(self, pos: (int, int)):
+        x, y = pos
+        if 0 <= x < 8 and 0 <= y < 8:
+            self.position = pos
+            self.rect.topleft = (x * CELL_SIZE, y * CELL_SIZE)
+    
+    def getColor(self) -> PieceColor:
+        return self.color
+
+    def getType(self) -> PieceType:
+        return self.type
+
     def update(self, events):
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -42,10 +54,11 @@ class Piece(pygame.sprite.Sprite):
 
 class Board:
     def __init__(self):
-        pygame.display.set_caption("Chess")
         self.screen = pygame.display.set_mode((SCREEN_SIZE, SCREEN_SIZE))
         self.selectedPiece = None
+        self.turn = (0, PieceColor.WHITE)
         self.pieces = self.placePieces()
+        self.setBanner()
         
     def placePieces(self):
         def getQuad(coord):
@@ -63,8 +76,8 @@ class Board:
             PieceType.KNIGHT: getQuad((1,0)),
             PieceType.BISHOP: getQuad((2,0)),
             PieceType.PAWN: getRow(1) + getRow(6),
-            PieceType.QUEEN: [(4,0),(3,7)],
-            PieceType.KING: [(3,0),(4,7)],
+            PieceType.QUEEN: [(3,0),(3,7)],
+            PieceType.KING: [(4,0),(4,7)],
         }
 
         pieces = pygame.sprite.Group()
@@ -74,6 +87,12 @@ class Board:
                 color = PieceColor.WHITE if y > 3 else PieceColor.BLACK
                 pieces.add(Piece(color, pieceType, pos, self.selectPiece))
         return pieces
+
+    def pieceAt(self, pos: (int, int)) -> Piece | None:
+        for piece in self.pieces:
+            if piece.getPosition() == pos:
+                return piece
+        return None
 
     def drawGrid(self):
         self.screen.fill((0,0,0))
@@ -95,10 +114,97 @@ class Board:
         self.pieces.draw(surface=self.screen)
 
     def update(self, events: pygame.event):
+        def pixelToCell(pos: (int, int)) -> (int, int):
+            x, y = pos
+            return(x // CELL_SIZE, y // CELL_SIZE)
+
         self.pieces.update(events)
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                cell = pixelToCell(event.pos)
+                if self.selectedPiece is not None and cell != self.selectedPiece.getPosition():
+                    self.move(cell)
 
     def selectPiece(self, piece: Piece):
-        self.selectedPiece = piece
+        _, turnColor = self.turn
+        if piece.getColor() == turnColor:
+            self.selectedPiece = piece
+
+    def iterTurn(self):
+        num, color = self.turn
+        if color == PieceColor.WHITE:
+            self.turn = (num, PieceColor.BLACK)
+        else:
+            self.turn = (num + 1, PieceColor.WHITE)
+        self.setBanner()
+
+    def setBanner(self):
+        pygame.display.set_caption(f"Chess | {self.turn[0] + 1} | {self.turn[1].value}")
+
+    def move(self, target: (int, int)):
+        piece = self.selectedPiece
+        if piece is None:
+            return
+        pos = piece.getPosition()
+
+        takeablePiece = self.pieceAt(target)
+        if takeablePiece is not None and takeablePiece.getColor() is piece.getColor():
+            takeablePiece = None
+        
+        def isLegal() -> bool:
+            x, y = pos
+            p, q = target
+            dx, dy = abs(p-x), abs(q-y)
+            if dx + dy == 0:
+                return False
+
+            def isObstructed() -> bool:
+                if piece.getType() == PieceType.KNIGHT:
+                    return False
+                sx = 0 if p == x else (1 if p > x else -1)
+                sy = 0 if q == y else (1 if q > y else -1)
+                cx, cy = x + sx, y + sy
+                while (cx, cy) != target:
+                    if self.pieceAt((cx, cy)):
+                        return True
+                    cx += sx
+                    cy += sy
+                return False
+
+            if isObstructed():
+                return False
+
+            match piece.getType():
+                case PieceType.ROOK:
+                    return (dx == 0 or dy == 0)
+                case PieceType.KNIGHT:
+                    return (dx + dy == 3 and dx < 3 and dy < 3)
+                case PieceType.BISHOP:
+                    return (dx == dy)
+                case PieceType.PAWN:
+                    isWhite = piece.getColor() == PieceColor.WHITE
+                    if not 0 < dy <= 2:
+                        return False
+                    if (q > y) if isWhite else (q < y):
+                        return False
+                    if dy > 1 and (y != 6 if isWhite else y != 1):
+                        return False
+                    if dx > 0 and takeablePiece is None:
+                        return False
+                    return True
+                case PieceType.QUEEN:
+                    return (dx == dy or dx == 0 or dy == 0)
+                case PieceType.KING:
+                    return(dx <= 1 and dy <= 1)
+            return False
+
+        if isLegal():
+            if takeablePiece is not None:
+                self.pieces.remove(takeablePiece)
+            self.selectedPiece.setPosition(target)
+            self.iterTurn()
+
+        self.selectedPiece = None
 
 def main() -> None:
     pygame.init()
@@ -117,6 +223,8 @@ def main() -> None:
         board.draw()
         pygame.display.update()
         clock.tick(60)      
+
+    pygame.quit()
 
 if __name__ == "__main__":
     main()
